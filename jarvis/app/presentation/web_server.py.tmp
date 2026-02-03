@@ -89,15 +89,6 @@ def init_jarvis():
                 'type': 'assistant_response',
                 'text': response_text
             }, namespace='/')
-        
-        # Check if this is execution state
-        elif text.startswith("Executing:"):
-            command_name = text.replace("Executing:", "").strip()
-            socketio.emit('message', {
-                'type': 'command_executed',
-                'command': command_name
-            }, namespace='/')
-            
         else:
             # Regular thought/system message
             socketio.emit('message', {
@@ -131,57 +122,37 @@ def init_jarvis():
 
 def run_boot_sequence():
     """Run the boot sequence in background"""
-    from datetime import datetime
-    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    socketio.emit('message', {
-        'type': 'voice_state',
-        'state': AssistantState.BOOTING.value
-    }, namespace='/')
+    with app.app_context():
+        socketio.emit('message', {
+            'type': 'voice_state',
+            'state': AssistantState.BOOTING.value
+        })
     
     success = loop.run_until_complete(startup_manager.boot())
     
     if success:
         print("System Check Passed. Ready for voice commands.")
-        
-        # Determine Greeting
-        hour = datetime.now().hour
-        greeting = ""
-        if 5 <= hour < 12:
-            greeting = "Good Morning, Deven."
-        elif 12 <= hour < 17:
-            greeting = "Good Afternoon, Deven."
-        elif 17 <= hour < 22:
-            greeting = "Good Evening, Deven."
-        else:
-            greeting = "Hello, Deven."
-            
-        full_greeting = f"{greeting} All systems operational. Ready for your command."
-        
-        socketio.emit('message', {
-            'type': 'system_status',
-            'status': 'READY',
-            'level': 'success'
-        }, namespace='/')
-        
-        socketio.emit('message', {
-            'type': 'assistant_response',
-            'text': full_greeting
-        }, namespace='/')
-        
-        # Validating Voice Manager exists before speaking
-        if voice_manager:
-            loop.run_until_complete(voice_manager.speak(full_greeting))
-            
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'system_status',
+                'status': 'READY',
+                'level': 'success'
+            })
+            socketio.emit('message', {
+                'type': 'assistant_response',
+                'text': 'All systems operational. How may I assist you?'
+            })
     else:
         print("System Check Failed.")
-        socketio.emit('message', {
-            'type': 'system_status',
-            'status': 'ERROR',
-            'level': 'error'
-        }, namespace='/')
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'system_status',
+                'status': 'ERROR',
+                'level': 'error'
+            })
 
 # Flask Routes
 @app.route('/')
@@ -214,21 +185,10 @@ def handle_message(data):
     
     if msg_type == 'user_input':
         text = data.get('text', '')
-        if text:
-            # Check for stop command
-            if text.lower() in ['stop', 'cancel', 'shut up', 'quiet']:
-                if voice_manager:
-                    voice_manager.stop()
-                return
-
-            if assistant:
-                # Process user input
-                threading.Thread(target=process_user_input, args=(text,), daemon=True).start()
+        if text and assistant:
+            # Process user input
+            threading.Thread(target=process_user_input, args=(text,), daemon=True).start()
     
-    elif msg_type == 'stop_action':
-        if voice_manager:
-            voice_manager.stop()
-            
     elif msg_type == 'start_listening':
         is_listening = True
         if assistant:
@@ -245,47 +205,51 @@ def handle_message(data):
 def process_user_input(text):
     """Process user text input"""
     try:
-        socketio.emit('message', {
-            'type': 'voice_state',
-            'state': 'thinking'
-        }, namespace='/')
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'voice_state',
+                'state': 'thinking'
+            })
         
         response = assistant.process_input(text)
         
-        socketio.emit('message', {
-            'type': 'assistant_response',
-            'text': response
-        }, namespace='/')
-        
-        socketio.emit('message', {
-            'type': 'command_executed',
-            'command': text
-        }, namespace='/')
-        
-        socketio.emit('message', {
-            'type': 'voice_state',
-            'state': 'idle'
-        }, namespace='/')
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'assistant_response',
+                'text': response
+            })
+            
+            socketio.emit('message', {
+                'type': 'command_executed',
+                'command': text
+            })
+            
+            socketio.emit('message', {
+                'type': 'voice_state',
+                'state': 'idle'
+            })
     except Exception as e:
         print(f"Error processing request: {str(e)}")
-        socketio.emit('message', {
-            'type': 'assistant_response',
-            'text': f'Error: {str(e)}'
-        }, namespace='/')
-        socketio.emit('message', {
-            'type': 'voice_state',
-            'state': 'idle'
-        }, namespace='/')
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'assistant_response',
+                'text': f'Error: {str(e)}'
+            })
+            socketio.emit('message', {
+                'type': 'voice_state',
+                'state': 'idle'
+            })
 
 def start_voice_listening():
     """Start voice listening loop"""
     global is_listening
     
     try:
-        socketio.emit('message', {
-            'type': 'voice_state',
-            'state': 'listening'
-        }, namespace='/')
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'voice_state',
+                'state': 'listening'
+            })
         
         # This would integrate with your existing voice loop
         if assistant and voice_manager:
@@ -294,10 +258,11 @@ def start_voice_listening():
             
     except Exception as e:
         print(f"Voice listening error: {e}")
-        socketio.emit('message', {
-            'type': 'voice_state',
-            'state': 'idle'
-        }, namespace='/')
+        with app.app_context():
+            socketio.emit('message', {
+                'type': 'voice_state',
+                'state': 'idle'
+            })
 
 def main():
     """Main entry point"""

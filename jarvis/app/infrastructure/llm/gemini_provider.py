@@ -10,16 +10,41 @@ class GeminiLLMProvider(LLMProvider):
     
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
+        self.model = None
+        
         try:
-            print("Available Models:")
+            print("Fetching available Gemini models...")
+            available_models = []
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods:
-                    print(f" - {m.name}")
-            # self.model = genai.GenerativeModel('gemini-1.5-flash')
-            self.model = genai.GenerativeModel('models/gemini-2.5-flash')
+                    # Strip 'models/' prefix for cleaner comparison
+                    name = m.name.replace('models/', '')
+                    available_models.append(name)
+                    print(f" - {name}")
+            
+            # Priority list
+            priorities = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+            
+            selected_model = None
+            for p in priorities:
+                if p in available_models:
+                    selected_model = p
+                    break
+            
+            # Fallback to first available if no priority match
+            if not selected_model and available_models:
+                selected_model = available_models[0]
+                
+            if selected_model:
+                print(f"Selected Gemini Model: {selected_model}")
+                self.model = genai.GenerativeModel(selected_model)
+            else:
+                print("CRITICAL: No suitable Gemini models found. Defaulting to gemini-1.5-flash blindly.")
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+
         except Exception as e:
             print(f"Error listing models or init: {e}")
-            self.model = genai.GenerativeModel('models/gemini-2.5-flash')
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
 
     def _format_history(self, history: List[Message]) -> List[dict]:
         formatted = []
@@ -32,7 +57,9 @@ class GeminiLLMProvider(LLMProvider):
     def generate_response(self, prompt: str, history: List[Message], system_prompt: Optional[str] = None) -> str:
         # Note: Gemini system prompt is usually set at model creation or separate config, 
         # simplistic implementation here.
-        
+        if not self.model:
+             return "Error: AI Model not initialized."
+             
         chat = self.model.start_chat(history=self._format_history(history))
         response = chat.send_message(prompt)
         return response.text
@@ -94,8 +121,8 @@ class GeminiLLMProvider(LLMProvider):
 
     def check_health(self) -> bool:
         try:
-            # Simple ping with a token count or minimal generation
-            self.model.count_tokens("Ping")
+            # Simple ping with generation instead of count_tokens (which fails on some models)
+            self.model.generate_content("Ping")
             return True
         except Exception as e:
             print(f"[Health Check Failed] Gemini: {e}")

@@ -43,3 +43,11 @@ class EdgeTTS(TTSProvider):
     def check_health(self) -> bool:
         # Check if edge-tts is importable and functional
         return True
+
+    def stop(self) -> None:
+        """Stop current playback"""
+        try:
+            if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+                pygame.mixer.music.stop()
+        except:
+            pass

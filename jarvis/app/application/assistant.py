@@ -25,11 +25,14 @@ class AssistantCore:
         self.intent_service = IntentService(llm)
         self.on_thought_update = on_thought_update # Callback for GUI updates
         self.voice_manager = voice_manager
+        self._voice_loop_running = False
 
     def start_voice_loop(self):
         """Starts the main voice interaction loop in a separate thread."""
-        if not self.voice_manager:
+        if not self.voice_manager or self._voice_loop_running:
             return
+        
+        self._voice_loop_running = True
         threading.Thread(target=self._voice_loop_thread, daemon=True).start()
 
     def _voice_loop_thread(self):
@@ -37,17 +40,49 @@ class AssistantCore:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
+        self.is_awake = True  # Start awake by default
+        
         while True:
-            # 1. Listen
-            user_text = self.voice_manager.listen()
-            
-            if user_text:
-                # 2. Process (Logic acts as "Thinking")
-                response = self.process_input(user_text)
+            try:
+                # 1. Listen
+                user_text = self.voice_manager.listen()
                 
-                # 3. Speak
-                if response:
-                    loop.run_until_complete(self.voice_manager.speak(response))
+                if user_text:
+                    cleaned_text = user_text.lower().strip()
+                    self._log_thought(f"Transcribed: {user_text}")
+
+                    # --- WAKE WORD LOGIC ---
+                    if not self.is_awake:
+                        # If asleep, ONLY listen for "Jarvis"
+                        if "jarvis" in cleaned_text:
+                            self.is_awake = True
+                            self._log_thought("Wake Word Detected.")
+                            loop.run_until_complete(self.voice_manager.speak("Yes, I'm here."))
+                        else:
+                            # Ignore everything else
+                            continue
+                    
+                    # --- SLEEP COMMANDS ---
+                    if self.is_awake:
+                        if cleaned_text in ["stop", "cancel", "sleep", "go to sleep", "shut down"]:
+                            self.is_awake = False
+                            self._log_thought("Entering Sleep Mode.")
+                            loop.run_until_complete(self.voice_manager.speak("Going to sleep. Say Jarvis to wake me."))
+                            continue
+
+                    # 2. Process (Logic acts as "Thinking")
+                    # Only process if awake
+                    if self.is_awake:
+                        response = self.process_input(user_text)
+                        
+                        # 3. Speak
+                        if response:
+                            loop.run_until_complete(self.voice_manager.speak(response))
+
+            except Exception as e:
+                self._log_thought(f"Error in voice loop: {e}")
+                # Optional: Speak error
+                # loop.run_until_complete(self.voice_manager.speak("I encountered an error processing that."))
             
             # Small delay to prevent tight loop if mic fails
             # time.sleep(0.1)
@@ -75,7 +110,7 @@ class AssistantCore:
         if intent.confidence > 0.7 and intent.action != "unknown":
             command = self.commands.get_command(intent.action)
             if command:
-                self._log_thought(f"Executing command: {command.name} with {intent.parameters}")
+                self._log_thought(f"Executing: {command.name}") 
                 try:
                     result = command.execute(**intent.parameters)
                     command_result_str = f"\n[System] Command '{intent.action}' executed. Result: {result.message}"
@@ -101,5 +136,9 @@ class AssistantCore:
         # 5. Save & Return
         bot_msg = Message(role=MessageRole.ASSISTANT, content=response_text)
         self.memory.add_message(bot_msg)
+        
+        # Send response to UI
+        self._log_thought(f"Response: {response_text}")
         self._log_thought("Idle.")
+        
         return response_text

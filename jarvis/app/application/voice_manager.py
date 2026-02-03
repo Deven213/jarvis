@@ -24,6 +24,12 @@ class VoiceManager:
         await self.tts.speak(text)
         self.on_event(VoiceEvent(AssistantState.IDLE))
 
+    def stop(self):
+        """Stop current speech"""
+        if hasattr(self.tts, 'stop'):
+            self.tts.stop()
+        self.on_event(VoiceEvent(AssistantState.IDLE))
+
     def listen(self) -> str:
         self.on_event(VoiceEvent(AssistantState.LISTENING))
         text = self.stt.listen_and_transcribe(self.mic)
@@ -32,7 +38,5 @@ class VoiceManager:
             self.on_event(VoiceEvent(AssistantState.TRANSCRIBING, message=text))
             # Optional: Identity check here if we had raw audio
             # confidence = self.identity.identify_speaker(...)
-        else:
-            self.on_event(VoiceEvent(AssistantState.IDLE))
             
         return text
