@@ -1,0 +1,11 @@
+google-generativeai
+python-dotenv
+pydantic
+tk
+pyaudio
+SpeechRecognition
+edge-tts
+pygame
+flask
+flask-socketio
+python-socketio

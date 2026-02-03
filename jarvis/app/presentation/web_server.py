@@ -1,0 +1,261 @@
+from flask import Flask, render_template, send_from_directory
+from flask_socketio import SocketIO, emit
+import os
+import sys
+import asyncio
+import threading
+from dotenv import load_dotenv
+
+# Ensure the root directory is in python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(os.path.dirname(current_dir))
+sys.path.append(root_dir)
+
+from app.domain.models import Message
+from app.infrastructure.llm.gemini_provider import GeminiLLMProvider
+from app.infrastructure.llm.mock_provider import MockLLMProvider
+from app.infrastructure.memory.local_memory import LocalMemory
+from app.infrastructure.plugins.registry import SimpleCommandRegistry
+from app.application.assistant import AssistantCore
+from app.infrastructure.voice.microphone import MicrophoneService
+from app.infrastructure.voice.stt import OnlineSTT
+from app.infrastructure.voice.tts import EdgeTTS
+from app.infrastructure.voice.identity import SimpleVoiceIdentity
+from app.application.voice_manager import VoiceManager
+from app.domain.events import VoiceEvent, AssistantState
+from app.application.startup.startup_manager import StartupManager
+
+# Initialize Flask app
+app = Flask(__name__, 
+            static_folder='static',
+            template_folder='static')
+app.config['SECRET_KEY'] = 'jarvis-secret-key-2026'
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Global variables
+assistant = None
+voice_manager = None
+startup_manager = None
+is_listening = False
+
+def init_jarvis():
+    """Initialize Jarvis components"""
+    global assistant, voice_manager, startup_manager
+    
+    load_dotenv()
+    
+    # Setup Infrastructure
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        print("Using Gemini Provider")
+        llm = GeminiLLMProvider(api_key=api_key)
+    else:
+        print("WARNING: GEMINI_API_KEY not found. Using Mock Provider.")
+        llm = MockLLMProvider()
+
+    memory = LocalMemory()
+    registry = SimpleCommandRegistry()
+
+    # Voice Infrastructure
+    mic = MicrophoneService()
+    stt = OnlineSTT()
+    tts = EdgeTTS()
+    identity = SimpleVoiceIdentity()
+    
+    # Load Plugins
+    plugins_dir = os.path.join(root_dir, "plugins")
+    if os.path.exists(plugins_dir):
+        registry.load_plugins_from_folder(plugins_dir)
+    else:
+        print(f"Plugins dir not found: {plugins_dir}")
+
+    # Callbacks for UI updates
+    def on_thought(text):
+        socketio.emit('message', {
+            'type': 'thought',
+            'text': text
+        })
+
+    def on_voice_event(event: VoiceEvent):
+        socketio.emit('message', {
+            'type': 'voice_state',
+            'state': event.state.value
+        })
+
+    voice_manager = VoiceManager(stt, tts, mic, identity, on_voice_event)
+    
+    startup_manager = StartupManager(
+        llm, stt, tts, mic, identity,
+        on_status_update=on_thought,
+        on_voice_event=on_voice_event
+    )
+
+    assistant = AssistantCore(
+        llm=llm,
+        memory=memory,
+        commands=registry,
+        on_thought_update=on_thought,
+        voice_manager=voice_manager
+    )
+    
+    return assistant, voice_manager, startup_manager
+
+def run_boot_sequence():
+    """Run the boot sequence in background"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    socketio.emit('message', {
+        'type': 'voice_state',
+        'state': AssistantState.BOOTING.value
+    })
+    
+    success = loop.run_until_complete(startup_manager.boot())
+    
+    if success:
+        print("System Check Passed. Ready for voice commands.")
+        socketio.emit('message', {
+            'type': 'system_status',
+            'status': 'READY',
+            'level': 'success'
+        })
+        socketio.emit('message', {
+            'type': 'assistant_response',
+            'text': 'All systems operational. How may I assist you?'
+        })
+    else:
+        print("System Check Failed.")
+        socketio.emit('message', {
+            'type': 'system_status',
+            'status': 'ERROR',
+            'level': 'error'
+        })
+
+# Flask Routes
+@app.route('/')
+def index():
+    return send_from_directory('static', 'index.html')
+
+@app.route('/<path:path>')
+def static_files(path):
+    return send_from_directory('static', path)
+
+# SocketIO Events
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+    emit('message', {
+        'type': 'system_status',
+        'status': 'CONNECTED',
+        'level': 'success'
+    })
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected')
+
+@socketio.on('message')
+def handle_message(data):
+    global is_listening
+    
+    msg_type = data.get('type')
+    
+    if msg_type == 'user_input':
+        text = data.get('text', '')
+        if text and assistant:
+            # Process user input
+            threading.Thread(target=process_user_input, args=(text,), daemon=True).start()
+    
+    elif msg_type == 'start_listening':
+        is_listening = True
+        if assistant:
+            # Start voice loop in background
+            threading.Thread(target=start_voice_listening, daemon=True).start()
+    
+    elif msg_type == 'stop_listening':
+        is_listening = False
+        emit('message', {
+            'type': 'voice_state',
+            'state': 'idle'
+        })
+
+def process_user_input(text):
+    """Process user text input"""
+    try:
+        emit('message', {
+            'type': 'voice_state',
+            'state': 'thinking'
+        }, broadcast=True)
+        
+        response = assistant.process_input(text)
+        
+        socketio.emit('message', {
+            'type': 'assistant_response',
+            'text': response
+        })
+        
+        socketio.emit('message', {
+            'type': 'command_executed',
+            'command': text
+        })
+        
+        socketio.emit('message', {
+            'type': 'voice_state',
+            'state': 'idle'
+        })
+    except Exception as e:
+        socketio.emit('message', {
+            'type': 'assistant_response',
+            'text': f'Error processing request: {str(e)}'
+        })
+        socketio.emit('message', {
+            'type': 'voice_state',
+            'state': 'idle'
+        })
+
+def start_voice_listening():
+    """Start voice listening loop"""
+    global is_listening
+    
+    try:
+        socketio.emit('message', {
+            'type': 'voice_state',
+            'state': 'listening'
+        })
+        
+        # This would integrate with your existing voice loop
+        # For now, we'll simulate it
+        if assistant and voice_manager:
+            # Start the voice loop
+            assistant.start_voice_loop()
+            
+    except Exception as e:
+        print(f"Voice listening error: {e}")
+        socketio.emit('message', {
+            'type': 'voice_state',
+            'state': 'idle'
+        })
+
+def main():
+    """Main entry point"""
+    global assistant, voice_manager, startup_manager
+    
+    print("Initializing J.A.R.V.I.S...")
+    assistant, voice_manager, startup_manager = init_jarvis()
+    
+    # Run boot sequence in background
+    threading.Thread(target=run_boot_sequence, daemon=True).start()
+    
+    print("\n" + "="*60)
+    print("J.A.R.V.I.S Web Interface Starting...")
+    print("="*60)
+    print("\nOpen your browser and navigate to:")
+    print("  → http://localhost:5001")
+    print("\nPress Ctrl+C to stop the server")
+    print("="*60 + "\n")
+    
+    # Start Flask-SocketIO server
+    socketio.run(app, host='0.0.0.0', port=5001, debug=False, allow_unsafe_werkzeug=True)
+
+if __name__ == '__main__':
+    main()

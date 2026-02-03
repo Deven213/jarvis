@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S - Just A Rather Very Intelligent System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo-section">
+                <div class="logo-circle"></div>
+                <h1 class="logo-text">J.A.R.V.I.S</h1>
+            </div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="status-label">SYSTEM</span>
+                    <span class="status-value" id="systemStatus">ONLINE</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">VOICE</span>
+                    <span class="status-value" id="voiceStatus">IDLE</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">TIME</span>
+                    <span class="status-value" id="currentTime">--:--:--</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Left Panel - Voice Visualizer -->
+            <div class="left-panel">
+                <div class="voice-visualizer-container">
+                    <canvas id="voiceVisualizer"></canvas>
+                    <div class="voice-status-overlay">
+                        <div class="pulse-ring"></div>
+                        <div class="voice-icon" id="voiceIcon">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                            </svg>
+                        </div>
+                        <p class="voice-text" id="voiceText">Listening...</p>
+                    </div>
+                </div>
+
+                <!-- Command History -->
+                <div class="command-history">
+                    <h3 class="section-title">RECENT COMMANDS</h3>
+                    <div class="command-list" id="commandList">
+                        <!-- Commands will be added dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Chat & Controls -->
+            <div class="right-panel">
+                <!-- Chat Display -->
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="system-message">
+                            <span class="timestamp">[SYSTEM BOOT]</span>
+                            <p>J.A.R.V.I.S initialized successfully. All systems operational.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <input 
+                            type="text" 
+                            id="userInput" 
+                            placeholder="Enter command or speak..." 
+                            autocomplete="off"
+                        />
+                        <button class="send-btn" id="sendBtn">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
+                        <button class="voice-btn" id="voiceBtn">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Metrics -->
+                <div class="metrics-panel">
+                    <div class="metric-item">
+                        <span class="metric-label">CPU</span>
+                        <div class="metric-bar">
+                            <div class="metric-fill" id="cpuMetric" style="width: 45%"></div>
+                        </div>
+                        <span class="metric-value">45%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">MEMORY</span>
+                        <div class="metric-bar">
+                            <div class="metric-fill" id="memMetric" style="width: 62%"></div>
+                        </div>
+                        <span class="metric-value">62%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">NETWORK</span>
+                        <div class="metric-bar">
+                            <div class="metric-fill" id="netMetric" style="width: 28%"></div>
+                        </div>
+                        <span class="metric-value">28%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Background Effects -->
+        <div class="grid-background"></div>
+        <div class="particles" id="particles"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
